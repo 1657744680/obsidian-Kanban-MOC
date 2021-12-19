@@ -1,5 +1,6 @@
-import { appendFile, writeFile } from 'fs';
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { appendFile, fstat, readFile, writeFile } from 'fs';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, WorkspaceItem, Menu, TFile, MenuItem } from 'obsidian';
+import { isAbsolute } from 'path';
 import * as path from 'path/posix';
 
 // Remember to rename these classes and interfaces!
@@ -23,6 +24,7 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 // 插件主功能设置！！
 export default class MyPlugin extends Plugin { 
 	settings: MyPluginSettings;
+	clickFile: TFile;
 
 	// 异步：加载插件
 	async onload() {
@@ -41,57 +43,77 @@ export default class MyPlugin extends Plugin {
 
 		// 创建一个新的命令
 		this.addCommand({
-			id: 'rename-res',
-			name: '修改资源名称',
-			callback: () => {
-				new AddItemModal(this.app, this, "修改资源名称").open()
-			}
-		}); 
-
-		// 创建一个新的命令
-		this.addCommand({
-			id: 'delete-res',
-			name: '删除资源',
-			callback: () => {
-				new AddItemModal(this.app, this, "删除资源").open()
-			}
-		});
-
-		// 创建一个新的命令
-		this.addCommand({
 			id: 'create-prj',
 			name: '创建新项目',
 			callback: () => {
 				new AddItemModal(this.app, this, "创建新项目").open()
 			}
 		}); 
-
-		// 创建一个新的命令
-		this.addCommand({
-			id: 'rename-prj',
-			name: '修改项目名称',
-			callback: () => {
-				new AddItemModal(this.app, this, "修改项目名称").open()
-			}
-		});
-
-		// 创建一个新的命令
-		this.addCommand({
-			id: 'delete-prj',
-			name: '删除项目',
-			callback: () => {
-				new AddItemModal(this.app, this, "删除项目").open()
-			}
-		});
 		
 		// 创建一个新的命令
 		this.addCommand({
 			id: 'update-MOC',
 			name: '更新索引',
 			callback: () => {
-				this.updateMOC();
+				this.updateMOC("资源");
+				this.updateMOC("项目");
 			}
 		});
+
+		// 修改资源或项目名称
+		const fileMenuHandlerRenameFile = (menu: Menu, file: TFile) => {
+			menu.addItem((item: MenuItem) => {
+				item
+				.setTitle("看板MOC：修改文件名称")
+				// .setIcon("folder")
+				.onClick(() => {
+					if (this.checkSettings()) {
+						this.clickFile = file
+						if (this.checkResOrPrj(file.basename) == "资源") {
+							new AddItemModal(this.app, this, "修改资源名称").open()
+						}
+						else if (this.checkResOrPrj(file.basename) == "项目") {
+							new AddItemModal(this.app, this, "修改项目名称").open()
+						}
+						else {
+							new Notice("该文件不是资源或项目的入口文档")
+						}
+					}
+				});
+			});
+		};
+
+		
+		this.registerEvent(
+			this.app.workspace.on("file-menu", fileMenuHandlerRenameFile),
+		);
+
+		// 删除资源或项目
+		const fileMenuHandlerDeleteFile = (menu: Menu, file: TFile) => {
+			menu.addItem((item: MenuItem) => {
+				item
+				.setTitle("看板MOC：删除文件")
+				// .setIcon("folder")
+				.onClick(() => {
+					if (this.checkSettings()) {
+						this.clickFile = file
+						if (this.checkResOrPrj(file.basename) == "资源") {
+							new AddItemModal(this.app, this, "删除资源").open()
+						}
+						else if (this.checkResOrPrj(file.basename) == "项目") {
+							new AddItemModal(this.app, this, "删除项目").open()
+						}
+						else {
+							new Notice("该文件不是资源或项目的入口文档")
+						}
+					}
+				});
+			});
+		};
+		
+		this.registerEvent(
+			this.app.workspace.on("file-menu", fileMenuHandlerDeleteFile),
+		);
 
 	}
 
@@ -105,12 +127,15 @@ export default class MyPlugin extends Plugin {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 	}
 
+	// ======================= 自定义函数 =======================
+
 	// 异步：保存设置
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
 
-	updateMOC() {
+	// 更新索引
+	updateMOC(opType: string) {
 		if (this.checkSettings()) {
 			for (var file of this.app.vault.root.children) {
 				if (file.name == `${this.settings.resMOCfileName}.md`) {
@@ -123,78 +148,99 @@ export default class MyPlugin extends Plugin {
 			// 处理获得已经被引用的文件名称列表
 			var shouldbeIndexedFiles = this.getShouldBeIndexedFilesList();
 			var IndexedFiles = new Array();
-
-			if (this.app.metadataCache.getFileCache(resMOC).links) {
-				for (var link of this.app.metadataCache.getFileCache(resMOC).links) {
+			if (opType == "资源") {
+				if (this.app.metadataCache.getFileCache(resMOC).links) {
+					for (var link of this.app.metadataCache.getFileCache(resMOC).links) {
+						for (var name of shouldbeIndexedFiles["资源"]) {
+							if (link.link == name) {
+								IndexedFiles.push(name)
+								break
+							}
+						}
+					}
+				}
+				// 处理资源MOC
+				this.app.vault.read(resMOC).then(data => {
+					// 处理获得未被引用的文件，并处理成特定的符合看板的字符串形式
+					var NotIndexedFiles = '';
 					for (var name of shouldbeIndexedFiles["资源"]) {
-						if (link.link == name) {
-							IndexedFiles.push(name)
-							break
+						if (IndexedFiles.indexOf(name) == -1) [
+							NotIndexedFiles = `${NotIndexedFiles}- [ ] [[${name}]]\n`
+						]
+					}
+					if (data.indexOf("## ") != -1) {
+						var result = data.replace(/## .*?\n/, "$&" + NotIndexedFiles)
+
+						this.app.vault.adapter.write(`${this.settings.resMOCfileName}.md`, result).then(data => {
+							new Notice("资源索引更新完成")
+
+						})
+					}
+					else {
+						new Notice("请确保资源MOC文档为看板模式，且已设置至少一个列")
+					}
+	
+				});
+			}
+			else if (opType == "项目") {
+				if (this.app.metadataCache.getFileCache(prjMOC).links) {
+					for (var link of this.app.metadataCache.getFileCache(prjMOC).links) {
+						for (var name of shouldbeIndexedFiles["项目"]) {
+							if (link.link == name) {
+								IndexedFiles.push(name)
+								break
+							}
 						}
 					}
 				}
-			}
-			if (this.app.metadataCache.getFileCache(prjMOC).links) {
-				for (var link of this.app.metadataCache.getFileCache(prjMOC).links) {
+				// 处理项目MOC
+				this.app.vault.read(prjMOC).then(data => {
+					// 处理获得未被引用的文件，并处理成特定的符合看板的字符串形式
+					var NotIndexedFiles = '';
 					for (var name of shouldbeIndexedFiles["项目"]) {
-						if (link.link == name) {
-							IndexedFiles.push(name)
-							break
-						}
+						if (IndexedFiles.indexOf(name) == -1) [
+							NotIndexedFiles = `${NotIndexedFiles}- [ ] [[${name}]]\n`
+						]
 					}
-				}
+					// console.log(NotIndexedFiles)
+					if (data.indexOf("## ") != -1) {
+						var result = data.replace(/## .*?\n/, "$&" + NotIndexedFiles)
+						this.app.vault.adapter.write(`${this.settings.prjMOCfileName}.md`, result).then(data => {
+							new Notice("项目索引更新完成")
+
+						})
+					}
+					else {
+						new Notice("请确保项目MOC文档为看板模式，且已设置一个列")
+					}
+				});
 			}
-
-			// 处理资源MOC
-			this.app.vault.read(resMOC).then(data => {
-				// 处理获得未被引用的文件，并处理成特定的符合看板的字符串形式
-				var NotIndexedFiles = '';
-				for (var name of shouldbeIndexedFiles["资源"]) {
-					if (IndexedFiles.indexOf(name) == -1) [
-						NotIndexedFiles = `${NotIndexedFiles}- [ ] [[${name}]]\n`
-					]
-				}
-				console.log(NotIndexedFiles)
-				if (data.indexOf("## ") != -1) {
-					var result = data.replace(/## .*?\n/, "$&" + NotIndexedFiles)
-					
-					writeFile(`${this.app.vault.adapter.basePath}\\${this.settings.resMOCfileName}.md`, result, () => {
-						new Notice("资源索引更新完成")
-					})
-				}
-				else {
-					new Notice("请确保资源MOC文档为看板模式，且已设置一个列")
-				}
-
-			});
-			
-			// 处理项目MOC
-			this.app.vault.read(prjMOC).then(data => {
-				// 处理获得未被引用的文件，并处理成特定的符合看板的字符串形式
-				var NotIndexedFiles = '';
-				for (var name of shouldbeIndexedFiles["项目"]) {
-					if (IndexedFiles.indexOf(name) == -1) [
-						NotIndexedFiles = `${NotIndexedFiles}- [ ] [[${name}]]\n`
-					]
-				}
-				console.log(NotIndexedFiles)
-				if (data.indexOf("## ") != -1) {
-					var result = data.replace(/## .*?\n/, "$&" + NotIndexedFiles)
-					
-					writeFile(`${this.app.vault.adapter.basePath}\\${this.settings.prjMOCfileName}.md`, result, () => {
-						new Notice("项目索引更新完成")
-					})
-				}
-				else {
-					new Notice("请确保项目MOC文档为看板模式，且已设置一个列")
-				}
-			});
 		}
+	}
+
+	// 根据文件名称（不带后缀）检查是否为资源或项目的入口文件，是返回"资源"或"项目"，否则返回false
+	checkResOrPrj(fileName: string) {
+		if (this.getShouldBeIndexedFilesList()["资源"].indexOf(fileName) != -1) {
+			return "资源"
+		}
+		else if (this.getShouldBeIndexedFilesList()["项目"].indexOf(fileName) != -1) {
+			return "项目"
+		}
+		else return false
+	}
+
+	// 检查文件名称是否重复，若重复则返回 true，否则返回 false
+	isMarkdownNameRepeated(filename: string) {
+		for (var file of this.app.vault.getMarkdownFiles()){
+			if (file.basename == filename) {
+				return true
+			}
+		}
+		return false
 	}
 
 	// 查找所有应该被索引的文件夹，并且会检查topfolder下的文件结构是否符合规定。返回不带后缀.md的名称列表
 	getShouldBeIndexedFilesList() {
-		var attachmentFolder = this.app.vault.config.attachmentFolderPath.replace("./", "");
 
 		const topFolder = this.settings.topFolder
 
@@ -208,7 +254,6 @@ export default class MyPlugin extends Plugin {
 		// - /topFolder 的子文件 检查 1 级文件，应该只存在文件夹
 		for (var FirstLevelChild of root.children){
 			if (FirstLevelChild.path.endsWith(".md")){
-				console.log(`${topFolder} 文件夹下不应出现md文档:\n${FirstLevelChild.name}`);
 				new Notice(`${topFolder} 文件夹下不应出现md文档:\n${FirstLevelChild.name}`);
 			}
 			// 不是文档就是文件夹（假设没有其它的东西）
@@ -223,7 +268,6 @@ export default class MyPlugin extends Plugin {
 				for (var SecondLevelChild of FirstLevelChild.children){
 					var RukouFile = false;
 					if (SecondLevelChild.path.endsWith(".md")){
-						console.log(`${FirstLevelChild.path} 文件夹下不应出现md文档:\n${SecondLevelChild.name}`);
 						new Notice(`${FirstLevelChild.path} 文件夹下不应出现md文档:\n${SecondLevelChild.name}`);
 					}
 					// 不是文档就是文件夹（假设没有其它的东西）
@@ -241,7 +285,6 @@ export default class MyPlugin extends Plugin {
 						shouldBeIndexedFilesList[FirstLevelChild.name].push(SecondLevelChild.name);
 					}
 					else{
-						console.log(`${SecondLevelChild.path} 文件夹下缺少\n名为：${SecondLevelChild.name}.md 的入口文档`);
 						new Notice(`${SecondLevelChild.path} 文件夹下缺少\n名为：${SecondLevelChild.name}.md 的入口文档`);
 					}
 				}
@@ -358,11 +401,20 @@ class AddItemModal extends Modal {
 				default:
 		   }
 		}
-		else this.close();
+		else this.close(); 
 	}
 
 	onClose(): void {
-		this.plugin.updateMOC();
+		if (this.opType.indexOf("资源") != -1) {
+			setTimeout(() => {
+				this.plugin.updateMOC("资源");
+			}, 500)
+		}
+		else if (this.opType.indexOf("项目") != -1) {
+			setTimeout(() => {
+				this.plugin.updateMOC("项目");
+			}, 500)
+		}
 	}
 
 	createItem(folderName: string){
@@ -391,23 +443,15 @@ class AddItemModal extends Modal {
 		// ============ 操作 ============
 		var plugin = this.plugin
 		var opType = this.opType
+		var modal = this
 		
 		// 按下按键
 		creatButton.onclick = function() {
 			// 检查名称是否合规
 			if (plugin.checkNameFormat(newItemName.value)) {
 				// 检查是否存在重名文件
-				var indexedFiles = plugin.getShouldBeIndexedFilesList()
-				var okToGoOn = true
-				for (var key in indexedFiles){
-					if (indexedFiles[key].indexOf(newItemName.value) != -1) {
-						new Notice("已存在重名文件，请重新输入新名称");
-						okToGoOn = false
-						break
-					}
-				}
-				// 若都无问题，则可以进行操作
-				if (okToGoOn) {
+				if (!plugin.isMarkdownNameRepeated(newItemName.value)) {
+					// 若都无问题，则可以进行操作
 					plugin.app.vault.createFolder(`${plugin.settings.topFolder}/${folderName}/${newItemName.value}`)
 					for (var file of plugin.app.vault.getMarkdownFiles()) {
 						if (file.path == `${plugin.settings.templatesFolder}/${folderName}-模板.md`){
@@ -416,11 +460,15 @@ class AddItemModal extends Modal {
 								file.unsafeCachedData,
 							)
 							new Notice(`已成功${opType}：${newItemName.value}`)
+							modal.close()
 						}
 					}
 				}
+				else {
+					new Notice("新名称和其它文档重名，请重新输入。\n⚠️入口文档最好不要同任何文档重名！！！");
+				}
 			}
-		} 
+		}
 	}
 	
 	renameItem(folderName: string){
@@ -430,38 +478,20 @@ class AddItemModal extends Modal {
 		
 		// 1、设置标题
 		const title = this.titleEl
-		title.setText(`${this.opType}`);
-
-		// 2、输入框＋候选框
-		var newItemName = contentEl.createEl("input")
-		newItemName.placeholder = "原文件旧名称";
-		newItemName.setAttrs({
-			"class": "kanbanMOC",
-			"list": "fileSearch"
-		});
-		var searchResult = contentEl.createEl("datalist")
-		searchResult.setAttrs({
-			"class": "kanbanMOC",
-			"id": "fileSearch"
-		});
-		var modal = this
-		var plugin = this.plugin
-		newItemName.oninput = function(){
-			searchToSelect(newItemName.value, modal.opType, plugin, searchResult)
-		}
+		title.setText(`${this.opType}: ${this.plugin.clickFile.basename}`);
 
 		contentEl.createEl("br")
 
-		// 3、输入框
+		// 2、输入框
 		var newItemName2 = contentEl.createEl("input")
-		newItemName2.placeholder = "原文件新名称";
+		newItemName2.placeholder = "请输入新名称";
 		newItemName2.setAttrs({
 			"class": "kanbanMOC",
 		});
 
 		contentEl.createEl("br")
 
-		// 4、按钮
+		// 3、按钮
 		var creatButton = contentEl.createEl("button");
 		creatButton.setText("   确定   ");
 		creatButton.setAttrs({
@@ -469,40 +499,27 @@ class AddItemModal extends Modal {
 		});
 		
 		// ============ 操作 ============
+		var modal = this
+		var plugin = this.plugin
 		var opType = this.opType
 
 		// 按下按键
 		creatButton.onclick = function() {
-			// 检查名称是否合规
-			if (plugin.checkNameFormat(newItemName.value) && plugin.checkNameFormat(newItemName2.value)) {
-				// 检查旧名称是否存在、新名称是否重复
-				var indexedFiles = plugin.getShouldBeIndexedFilesList()
-				var oldNameExists = false
-				var newNameRepeat = false
-				for (var key in indexedFiles){
-					if (indexedFiles[key].indexOf(newItemName.value) != -1) {
-						oldNameExists = true
-					}
-					if (indexedFiles[key].indexOf(newItemName2.value) != -1) {
-						newNameRepeat = true
-					}
-				}
-				if (newNameRepeat || !oldNameExists) {
-					if(!oldNameExists){
-						new Notice("原文件不存在，请重新输入原文件旧名称：");
-					}
-					if (newNameRepeat){
-						new Notice("新文件名重复，请重新输入原文件新名称：");
-					}
-				}
-				// 若都无问题，则可以进行操作
-				else{
-					var opFile = plugin.app.vault.getAbstractFileByPath(`${plugin.settings.topFolder}/${folderName}/${newItemName.value}/${newItemName.value}.md`)
-					plugin.app.fileManager.renameFile(opFile, `${plugin.settings.topFolder}/${folderName}/${newItemName.value}/${newItemName2.value}.md`)
+			// 检查新名称是否合规
+			if (plugin.checkNameFormat(newItemName2.value)) {
+				// 检查新名称是否重复（入口文档不能和任何文档重复）
+				if (!plugin.isMarkdownNameRepeated(newItemName2.value)) {
+					// 若都无问题，则可以进行操作
+					var opFile = plugin.app.vault.getAbstractFileByPath(plugin.clickFile.path)
+					plugin.app.fileManager.renameFile(opFile, plugin.clickFile.path.replace(plugin.clickFile.name, `${newItemName2.value}.md`))
 					
-					var oldFolder = plugin.app.vault.getAbstractFileByPath(`${plugin.settings.topFolder}/${folderName}/${newItemName.value}`)
-					plugin.app.fileManager.renameFile(oldFolder,`${plugin.settings.topFolder}/${folderName}/${newItemName2.value}`)
-					new Notice(`已成功${opType}：${newItemName.value} => ${newItemName2.value}`)
+					var oldFolder = plugin.app.vault.getAbstractFileByPath(plugin.clickFile.parent.path)
+					plugin.app.fileManager.renameFile(oldFolder,plugin.clickFile.parent.path.replace(plugin.clickFile.parent.name, newItemName2.value))
+					new Notice(`已成功${opType}：${plugin.clickFile.basename} => ${newItemName2.value}`)
+					modal.close()
+				}
+				else {
+					new Notice("新名称和其它文档重名，请重新输入。\n⚠️入口文档最好不要同任何文档重名！！！");
 				}
 			}
 		}
@@ -515,32 +532,14 @@ class AddItemModal extends Modal {
 		
 		// 1、设置标题
 		const title = this.titleEl
-		title.setText(`${this.opType}`);
-
-		// 2、输入框+候选框
-		var newItemName = contentEl.createEl("input")
-		newItemName.placeholder = "删除的文件名称";
-		newItemName.setAttrs({
-			"class": "kanbanMOC",
-			"list": "fileSearch"
-		});
-		var searchResult = contentEl.createEl("datalist")
-		searchResult.setAttrs({
-			"class": "kanbanMOC",
-			"id": "fileSearch"
-		});
-		var modal = this
-		var plugin = this.plugin
-		newItemName.oninput = function(){
-			searchToSelect(newItemName.value, modal.opType, plugin, searchResult)
-		}
+		title.setText(`⚠️${this.opType}: ${this.plugin.clickFile.basename}`);
 
 		contentEl.createEl("br")
 
-		// 3、输入框
-		var newItemName2 = contentEl.createEl("input")
-		newItemName2.placeholder = "请手动输入：确认删除";
-		newItemName2.setAttrs({
+		// 2、输入框
+		var newItemName = contentEl.createEl("input")
+		newItemName.placeholder = "请手动输入：确认删除";
+		newItemName.setAttrs({
 			"class": "kanbanMOC",
 			"onpaste": "return false",
 			"oncut": "return false"
@@ -548,7 +547,7 @@ class AddItemModal extends Modal {
 
 		contentEl.createEl("br")
 
-		// 4、按钮
+		// 3、按钮
 		var creatButton = contentEl.createEl("button");
 		creatButton.setText("   确定   ");
 		creatButton.setAttrs({
@@ -558,67 +557,51 @@ class AddItemModal extends Modal {
 		// ============ 操作 ============
 		var plugin = this.plugin
 		var opType = this.opType
+		var modal = this
 
 		// 按下按键
 		creatButton.onclick = function() {
-			// 检查名称是否合规
-			if (plugin.checkNameFormat(newItemName.value)) {
-				if (newItemName2.value == "确认删除"){
-					// 检查名称是否存在
-					var indexedFiles = plugin.getShouldBeIndexedFilesList()
-					var oldNameExists = false
-					for (var key in indexedFiles){
-						if (indexedFiles[key].indexOf(newItemName.value) != -1) {
-							oldNameExists = true
-						}
-					}
-					if (!oldNameExists) {
-						new Notice("原文件不存在，请重新输入原文件旧名称：");
-					}
-					// 若都无问题，则可以进行操作
-					else{
-						var oldFolder = plugin.app.vault.getAbstractFileByPath(`${plugin.settings.topFolder}/${folderName}/${newItemName.value}`);
-						plugin.app.vault.trash(oldFolder, true)
-						new Notice(`已成功${opType}：${newItemName.value}\n文件已移入系统回收站`)
-					}
+			// 若都无问题，则可以进行操作
+			if (newItemName.value == "确认删除"){
 
-				}else{
-					new Notice("请手动输入：确认删除")
+				// 移除文件夹（删除文件的位置应该是obsidian的删除文件位置）
+				var oldFolder = plugin.app.vault.getAbstractFileByPath(plugin.clickFile.parent.path);
+				plugin.app.vault.trash(oldFolder, true)		// Tries to move to system trash. If that isn't successful/allowed, use local trash
+				new Notice(`已成功${opType}：${plugin.clickFile.basename}`)
+
+				// 处理资源或项目MOC，删除替换删除的索引项
+				for (var file of plugin.app.vault.root.children) {
+					if (file.name == `${plugin.settings.resMOCfileName}.md` && opType.indexOf("资源") != -1) {
+						var MOCfile = file
+						break
+					}
+					else if (file.name == `${plugin.settings.prjMOCfileName}.md` && opType.indexOf("项目") != -1) {
+						var MOCfile = file
+						break
+					}
 				}
-			}
-		}
-	}
-}
+				
+				plugin.app.vault.read(MOCfile).then(data => {
+					// 处理MOC中删除的文件的链接
+					var result = data.replace(`- [ ] [[${plugin.clickFile.basename}]]\n`, "").replace(`- [x] [[${plugin.clickFile.basename}]]\n`, "").replace(`[[${plugin.clickFile.basename}]]`, `${plugin.clickFile.basename}`)
+					if (opType.indexOf("资源") != -1) {
+						this.app.vault.adapter.write(`${this.settings.resMOCfileName}.md`, result).then(data => {
+							new Notice("资源索引更新完成")
+							modal.close()
+						})
+					}
+					else if (opType.indexOf("项目") != -1) {
+						this.app.vault.adapter.write(`${this.settings.prjMOCfileName}.md`, result).then(data => {
+							new Notice("项目索引更新完成")
+							modal.close()
+						})
+					}
+	
+				});
 
-
-//模糊查询1:利用字符串的indexOf方法
-function searchToSelect(keyWord: string, resOrPrj: string, plugin: MyPlugin, searchResult: HTMLDataListElement){
-	if (keyWord){
-		var sList = new Array()
-		if (resOrPrj.indexOf("资源") != -1) {
-			sList = plugin.getShouldBeIndexedFilesList()["资源"]
-		}
-		else if (resOrPrj.indexOf("项目") != -1) {
-			sList = plugin.getShouldBeIndexedFilesList()["项目"]
-		}
-		var len = sList.length;
-		var arr = [];
-		for(var i=0;i<len;i++){
-			//如果字符串中不包含目标字符会返回-1
-			if(sList[i].toLowerCase().indexOf(keyWord.toLowerCase())>=0){
-				arr.push(sList[i]);
-				// 只显示 5 个候选结果
-				if (arr.length >= 5){
-					break
-				}
+			}else{
+				new Notice("请手动输入：确认删除")
 			}
-		}
-		searchResult.innerHTML = '';
-		var item = null;
-		for(var i=0; i<arr.length ;i++){
-			item = document.createElement('option');
-			item.innerHTML = arr[i];
-			searchResult.appendChild(item);
 		}
 	}
 }
