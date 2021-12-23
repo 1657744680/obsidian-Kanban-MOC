@@ -78,7 +78,7 @@ export default class MOCPlugin extends Plugin {
 			'id': 'updateMOC', 
 			'name': '更新索引',
 			callback: async () => {
-				this.getAllMOCPages()
+				this.update()
 			}
 		})
 
@@ -151,7 +151,7 @@ export default class MOCPlugin extends Plugin {
 							setTimeout(async () => {
 								await this.app.vault.rename(file.parent, `${file.parent.parent.path}/${file.name.replace(".md", '')}`)
 									.then(() => {
-										new Notice(`自动重命名MOC文件夹`)
+										// new Notice(`自动重命名MOC文件夹`)
 										return
 									})
 									.catch(async reason => {
@@ -172,7 +172,7 @@ export default class MOCPlugin extends Plugin {
 							setTimeout(async () => {
 								await this.app.vault.rename(file.parent, `${file.parent.parent.path}/${file.name.replace(".md", '')}`)
 									.then(() => {
-										new Notice(`自动重命名项目文件夹`)
+										// new Notice(`自动重命名项目文件夹`)
 										return
 									})
 									.catch(async reason => {
@@ -231,7 +231,7 @@ export default class MOCPlugin extends Plugin {
 								setTimeout(async ()=>{
 									await this.app.vault.rename(mocpage,`${file.path}/${file.name}.md`)
 										.then(() => {
-											new Notice(`自动重命名MOC文档`)
+											// new Notice(`自动重命名MOC文档`)
 											return
 										})
 										.catch(async reason => {
@@ -253,7 +253,7 @@ export default class MOCPlugin extends Plugin {
 							setTimeout(async ()=>{
 								await this.app.vault.rename(this.app.vault.getAbstractFileByPath(`${file.path}/${oldPath.split("/").pop()}.md`), `${file.path}/${file.name}.md`)
 									.then(() => {
-										new Notice(`自动重命名项目入口文档`) 
+										// new Notice(`自动重命名项目入口文档`) 
 										return
 									})
 									.catch(async reason => {
@@ -297,9 +297,12 @@ export default class MOCPlugin extends Plugin {
 			// 有同名文件夹，说明是项目、MOC文档，提示删除整个文件夹
 			if (file.path.endsWith('.md')) {
 				if (file.path.split('/').pop().replace('.md', '') == file.path.split('/').splice(-2)[0]) {
-					new deleteModal(this, file).open()
+					await this.app.vault.adapter.trashSystem(file.path.replace(`/${file.name}`, ''))
 				}
 			}
+			setTimeout(() => {
+				this.update()
+			}, 1000)
 		}))
 		/**
 		 * create 监听
@@ -382,6 +385,7 @@ export default class MOCPlugin extends Plugin {
 		}
 		// 更新索引
 		this.getAllMOCPages()
+		// new Notice("MOC: 更新索引完成")
 	}
 
 	/**
@@ -520,7 +524,7 @@ class MOCPage{
 	async renamePage(newPagePath: string) {
 		return await this.vault.rename(this.tabStractFile, newPagePath)
 			.then(async () => { 
-				new Notice(`MOC文档: ${this.path} => ${newPagePath}`)
+				// new Notice(`MOC文档: ${this.path} => ${newPagePath}`)
 				this.init(newPagePath)
 				return true
 			})
@@ -532,7 +536,7 @@ class MOCPage{
 	async renameFolder(newFolderPath: string) {
 		return await this.vault.rename(this.parent, newFolderPath)
 			.then(async () => { 
-				new Notice(`MOC文件夹: ${this.parent.path} => ${newFolderPath}`)
+				// new Notice(`MOC文件夹: ${this.parent.path} => ${newFolderPath}`)
 				this.init(`${newFolderPath}/${this.name}`)
 				return true
 			})
@@ -588,7 +592,7 @@ class MOCPage{
 						if (this.vault.getAbstractFileByPath(`${child.path.replace(".md", '')}/${child.name}`)) {
 							await this.vault.rename(child, `${child.path.replace(".md", '')}/${child.name.replace(".md", '')}-重复.md`)
 							.then(async () => {
-								new Notice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 已移动至项目文件夹`)
+								// new Notice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 已移动至项目文件夹`)
 							})
 							.catch(reason => {
 								myNotice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 移动至项目文件夹失败:\n${reason}`)
@@ -599,7 +603,7 @@ class MOCPage{
 						else {
 							await this.vault.rename(child, `${child.path.replace(".md", '')}/${child.name}`)
 							.then(async () => {
-								new Notice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 已移动至项目文件夹`)
+								// new Notice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 已移动至项目文件夹`)
 							})
 							.catch(reason => {
 								myNotice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 移动至项目文件夹失败:\n${reason}`)
@@ -613,7 +617,7 @@ class MOCPage{
 							.then(async () => {
 								await this.vault.rename(child, `${child.path.replace(".md", '')}/${child.name}`)
 									.then(async () => {
-										new Notice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 缺少项目文件夹，已自动创建并移动文档`)
+										// new Notice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 缺少项目文件夹，已自动创建并移动文档`)
 									})
 									.catch(reason => {
 										myNotice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 移动至项目文件夹失败:\n${reason}`)
@@ -635,7 +639,7 @@ class MOCPage{
 						if (this.vault.getAbstractFileByPath(`${child.path}.md`)) {
 							await this.vault.rename(this.vault.getAbstractFileByPath(`${child.path}.md`), `${child.path}/${child.name}.md`)
 								.then(async () => {
-									new Notice(`MOC: ${this.baseName} 下的项目入口文档: ${child.name.replace(".md", '')} 已移动至项目文件夹`)
+									// new Notice(`MOC: ${this.baseName} 下的项目入口文档: ${child.name.replace(".md", '')} 已移动至项目文件夹`)
 								})
 								.catch(reason => {
 									myNotice(`MOC: ${this.baseName} 下的项目入口文档: ${child.name.replace(".md", '')} 移动至项目文件夹失败:\n${reason}`)
@@ -715,17 +719,14 @@ class MOCPage{
 					else if (link.link.split("/").length == 1 ) {
 						// 获取新增未被索引的项目
 						for (var itemPage of this.ItemPages) {
-							if (link.link == itemPage.path.replace(`${itemPage.parent.path}/`, '')) {
+							if (link.link == itemPage.name) {
 								existItem = true
 								indexedItems.push(itemPage)
 								break
 							}
 						}
-						if (!existItem) { 
-							content = content
-								.replace(`- [ ] ${link.original}\n`, '')
-								.replace(`- [x] ${link.original}\n`, '')
-								.replace(`${link.original}`, ` ${link.link.split("/")[1]} `)
+						if (existItem) { 
+							content = content.replace(link.original, `[${itemPage.baseName}](${itemPage.baseName}/${itemPage.name})`)
 						}
 						// 若这种形式的链接对应的项目不存在，则删除该链接的卡片或进行替换
 					}
@@ -734,7 +735,7 @@ class MOCPage{
 		}
 		// 获取未被引用的项目
 		var notIndexedItems: Array<ItemPage> = new Array()
-		var newContent = ''
+		var newContent = '- [ ] ### 新增未索引项目\n'
 		for (var itemPage of this.ItemPages) {
 			var indexed = false
 			for (var indexedItem of indexedItems) {
@@ -753,7 +754,7 @@ class MOCPage{
 				newContent = newContent + `- [ ] [${itemPage.baseName}](${path})\n`
 			}
 		}
-		// 如果有未索引的项目的话，就处理新增内容和原内容的合并
+		// 如果有未索引的项目的话，就处理新旧内容合并、内容插入的位置
 		if (notIndexedItems.length) {
 			var contentLines = content.split("\n")
 			var insertLineNumber = 0
@@ -863,84 +864,6 @@ class ItemPage{
 		return false
 	}
 }
-
-// 删除文件面板
-class deleteModal extends Modal {
-	plugin: MOCPlugin;
-	file: TAbstractFile;
-
-	constructor(plugin: MOCPlugin, file: TAbstractFile) {
-		/**path 为
-		 */
-		super(plugin.app);
-		this.plugin = plugin;
-		this.file = file
-	}
-
-	onOpen(): void {
-		this.delete()
-	}
-
-	onClose(): void {
-		setTimeout(() => {
-			this.plugin.update()
-		}, 1000)
-	}
-
-	
-	delete(){
-
-		// ============ 面板界面 ============
-		const {contentEl} = this;
-		
-		// 1、设置标题
-		const title = this.titleEl
-		title.setText(`删除文件`);
-
-		contentEl.createEl("br")
-		contentEl.createEl('div').setText('您要删除的是MOC文档或者项目入口文档，是否删除整个文件夹？')
-		contentEl.createEl('div').setText('点击取消则只删除文档')
-		contentEl.createEl("br")
-
-		// 2、按钮
-		var creatButton1 = contentEl.createEl("button");
-		creatButton1.setText("   取消   ");
-		creatButton1.setAttrs({
-			"class": "kanbanMOC",
-		});
-
-		// 3、按钮
-		var creatButton2 = contentEl.createEl("button");
-		creatButton2.setText("   确定   ");
-		creatButton2.setAttrs({
-			"class": "kanbanMOC",
-		});
-		
-		// ============ 操作 ============
-		var modal = this
-		var plugin = this.plugin
-		var file = this.file
-
-
-		contentEl.onblur = function () {
-			modal.close()
-		}
-
-		// 按下按键
-		creatButton1.onclick = function() {
-			modal.close()
-		}
-		creatButton2.onclick = async function() {
-			if (file.path.endsWith(".md")) {
-				await plugin.app.vault.adapter.trashSystem(file.path.replace(`/${file.name}`, ''))
-				modal.close()
-			}
-			modal.close()
-		}
-	}
-}
-
-
 
 /**
  * 插件设置标签页
