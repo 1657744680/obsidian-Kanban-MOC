@@ -54,17 +54,23 @@ export default class MOCPlugin extends Plugin {
 		this.addSettingTab(new SettingTab(this.app, this));
 
 		// 自定义
+		// console.log(this.app.vault.getAbstractFileByPath('🕹️操作面板.md'))
+
+
 		this.update()
 
 		this.addCommand({
 			'id': 'convertMOC', 
 			'name': '转换选中的空文档为MOC看板',
-			checkCallback: (checking: boolean) => {
+			checkCallback:  (checking: boolean) => {
 				var file = this.app.workspace.getActiveFile()
 				var content = file.unsafeCachedData
 				if (!content) {
 					if (!checking) {
-						this.app.vault.modify(file, this.MOCTemplate)
+						this.updateTemplate()
+							.then(() => {
+								this.app.vault.modify(file, this.MOCTemplate)
+							})
 						setTimeout(() =>{
 							this.getAllMOCPages()
 						}, 1000)
@@ -83,66 +89,64 @@ export default class MOCPlugin extends Plugin {
 		})
 
 		
+		this.registerEvent(
+			this.app.workspace.on("file-menu", async (menu, file: TFile) => {
+				// 1、文档
+				if (file.path.endsWith(".md")) {
+					// if MOCPage
+					if (this.getAllMOCPagesPathList().indexOf(file.path) != -1) {
+						menu.addItem((item: MenuItem) => {
+							item.setTitle('移动至另一个MOC')
+								.onClick(() => {
+									new myModal(this, '移动至另一个MOC', file.path).open()
+								})
+						})
+					}
+					// else if 项目入口文档
+					else if (this.getAllItemPagesPathList().indexOf(file.path) != -1) {
+						menu.addItem((item: MenuItem) => {
+							item.setTitle('移动至另一个MOC')
+								.onClick(() => {
+									new myModal(this, '移动至另一个MOC', file.path).open()
+								})
+						})
+						menu.addItem((item: MenuItem) => {
+							item.setTitle('重命名该项目')
+								.onClick(() => {
+									new myModal(this, '重命名该项目', file.path).open()
+								})
+						})
+						menu.addItem((item: MenuItem) => {
+							item.setTitle('⚠️删除该项目')
+								.onClick(() => {
+									new myModal(this, '删除该项目', file.path).open()
+								})
+						})
+					}
+				}
+			}),
+		);
+
 		// ========================== 监听事件 ========================== 
 		/**
 		 * rename 文档菜单监听
 		 * 1、文档
-		 * 		移动
-		 * 			if MOCPage && oldPath中的父文件夹是该MOC文档的MOC文件夹
-		 * 				还原：弹出面板提示MOC可通过移动MOC文件夹或右键命令进行移动
-		 * 			else if 项目入口文档 （通过oldPath判断是原来是项目文件夹）
-		 * 				还原：弹出面板提示项目可通过移动项目文件夹或右键命令进行移动
 		 * 		重命名
 		 * 			if (metadataCahe判断)MOC文档 && MOC文件夹名称 != MOC入口文档名称
 		 * 				自动重命名MOC文件夹、弹出提示
+		 * 				更新MOC
 		 * 			else if (oldPath判断)项目入口文档 && 项目文件夹名称 != 项目入口文档名称
 		 * 				自动重命名项目文件夹、弹出提示
-		 * 2、文件夹
-		 * 		移动
-		 * 			if MOC文件夹 && 移动至项目文件夹
-		 * 				还原：不能移动MOC文件夹至另一个项目文件夹
-		 * 			else if 项目文件夹（通过oldPath判断是原来是项目文件夹）
-		 * 				还原：不能移动项目文件夹至另一个项目文件夹
-		 * 		重命名
-		 * 			if MOC文件夹 && MOC文件夹名称 != MOC入口文档名称
-		 * 				自动重命名MOC文档、弹出提示
-		 * 			else if 项目文件夹 && 项目文件夹名称 != 项目入口文档名称
-		 * 				自动重命名MOC文档、弹出提示
-		 * 		if templatesFolder
-		 * 			自动赋值保存设置
-		 * 3、finally 更新MOC
+		 * 				更新MOC
+		 * 	if templatesFolder
+		 * 		自动赋值保存设置
 		 */
+
 		this.registerEvent(this.app.vault.on("rename", async (file, oldPath) => {
 			// 1、文档
 			if (file.path.endsWith(".md")) {
-				// 移动
-				if (file.path.split('/').pop() == oldPath.split('/').pop()) {
-					// if MOCPage
-					if (this.getAllMOCPagesPathList().indexOf(file.path) != -1) {
-						// if oldPath中的父文件夹是该MOC文档的MOC文件夹
-						if (oldPath.split("/").pop().replace(".md", '') == oldPath.split("/").splice(-2)[0]) {
-							// 还原：弹出面板提示MOC可通过移动MOC文件夹或右键命令进行移动
-							setTimeout(async () => {
-								await this.app.vault.rename(file, oldPath)	
-								new Notice(`MOC可通过移动MOC文件夹进行移动或右键命令进行移动`)
-								return
-							}, 500)
-							return
-						}
-					}
-					// else if 项目入口文档（通过oldPath判断是原来是项目文件夹）
-					else if (oldPath.split("/").pop().replace(".md", '') == oldPath.split("/").slice(-2)[0]) {
-						// 还原：弹出面板提示项目可通过移动项目文件夹或右键命令进行移动
-						setTimeout(async () => {
-							await this.app.vault.rename(file, oldPath)	
-							new Notice(`项目可通过移动项目文件夹或右键命令进行移动`)
-							return
-						}, 500)
-						return
-					}
-				}
 				// 重命名
-				else {
+				if (file.path.split('/').pop() != oldPath.split('/').pop()) {
 					// if MOCPage
 					if (this.getAllMOCPagesPathList().indexOf(file.path) != -1) {
 						// if MOC文件夹名称 != MOC入口文档名称
@@ -152,18 +156,24 @@ export default class MOCPlugin extends Plugin {
 								await this.app.vault.rename(file.parent, `${file.parent.parent.path}/${file.name.replace(".md", '')}`)
 									.then(() => {
 										// new Notice(`自动重命名MOC文件夹`)
+										// 更新MOC
+										setTimeout(() => {
+											if (this.app.vault.getAbstractFileByPath(`${file.parent.parent.path}/${file.name.replace(".md", '')}/${file.name}`)) {
+												new MOCPage(this, `${file.parent.parent.path}/${file.name.replace(".md", '')}/${file.name}`).update()
+											}
+										}, 3000)
 										return
 									})
 									.catch(async reason => {
 										// 重命名文件夹失败、还原文档名称
 										await this.app.vault.rename(file, oldPath)	
-										new Notice(`重命名文件夹失败、还原文档名称`)
+										myNotice(`重命名文件夹失败、还原文档名称`)
 										return
 									})
 							}, 500)
 							return
 						}
-					} 
+					}
 					// else if 项目入口文档
 					else if (oldPath.split('/').pop().replace('.md', '') == file.parent.name) {
 						// if 项目文件夹名称 != 项目入口文档名称
@@ -173,12 +183,18 @@ export default class MOCPlugin extends Plugin {
 								await this.app.vault.rename(file.parent, `${file.parent.parent.path}/${file.name.replace(".md", '')}`)
 									.then(() => {
 										// new Notice(`自动重命名项目文件夹`)
+										// 更新MOC
+										setTimeout(() => {
+											if (this.getAllMOCPagesPathList().indexOf(`${file.parent.parent.path}/${file.parent.parent.name}.md`) != -1) {
+												new MOCPage(this, `${file.parent.parent.path}/${file.parent.parent.name}.md`).update()
+											}
+										}, 3000)
 										return
 									})
 									.catch(async reason => {
 										// 重命名文件夹失败、还原文档名称
 										await this.app.vault.rename(file, oldPath)	
-										new Notice(`重命名文件夹失败、还原文档名称`)
+										myNotice(`重命名文件夹失败、还原文档名称`)
 										return
 									})
 							}, 500)
@@ -187,141 +203,32 @@ export default class MOCPlugin extends Plugin {
 					}
 				}
 			}
-			// 2、文件夹
-			else if (file.path.indexOf(".") == -1) {
-				// 移动
-				if (file.path.split('/').pop() == oldPath.split('/').pop()) {
-					// if MOC文件夹
-					if (this.getAllMOCFoldersPathList().indexOf(file.path) != -1) {
-						// if 移动至项目文件夹的路径下
-						for (var ItemfolderPath of this.getAllItemFoldersPathList()) {
-							if (file.path.startsWith(ItemfolderPath) && file.path.split('/').length > ItemfolderPath.split('/').length) {
-								// 还原：不能移动MOC文件夹至另一个项目文件夹
-								setTimeout(async () => {
-									await this.app.vault.rename(file, oldPath)	
-									new Notice(`不能移动MOC文件夹至另一个项目文件夹`)
-								}, 500)
-								return
-							}
-						} 
-					}
-					// else if 项目文件夹（通过oldPath判断是原来是项目文件夹）
-					else if (this.doesFolderHasSpecialChild(file.path, `${oldPath.split('/').pop()}.md`)) {
-						for (var ItemfolderPath of this.getAllItemFoldersPathList()) { 
-							if (file.path.startsWith(ItemfolderPath) && file.path.split('/').length > ItemfolderPath.split('/').length) {
-								// 还原：不能移动项目文件夹至另一个项目文件夹
-								setTimeout(async () => {
-									await this.app.vault.rename(file, oldPath)	
-									new Notice(`不能移动项目文件夹至另一个项目文件夹`)
-								}, 500)
-								return
-							}
-						}
-					}
-				}
-				// 重命名
-				else {
-					// if MOC文件夹
-					if (this.getAllMOCFoldersPathList().indexOf(file.path) != -1) {
-						// if MOC文件夹名称 != MOC入口文档名称
-						if (!this.doesFileOrFolderHasTheSameName(file.path)) {
-							// 自动重命名MOC文档
-							var mocpage = this.doesFolderHasSpecialChild(file.path, `${oldPath.split("/").pop()}.md`)
-							if (mocpage) {
-								setTimeout(async ()=>{
-									await this.app.vault.rename(mocpage,`${file.path}/${file.name}.md`)
-										.then(() => {
-											// new Notice(`自动重命名MOC文档`)
-											return
-										})
-										.catch(async reason => {
-											// 重命名文档失败、还原文档名称
-											await this.app.vault.rename(file, oldPath)
-											new Notice(`重命名文档失败、还原文档名称`)
-											return
-										})
-								}, 500)
-							}
-							return
-						}
-					}
-					// else if 项目文件夹（通过oldPath判断是原来是项目文件夹）
-					else if (this.doesFolderHasSpecialChild(file.path, `${oldPath.split('/').pop()}.md`)) {
-						// if 项目文件夹名称 != 项目入口文档名称
-						if (!this.doesFileOrFolderHasTheSameName(file.path)) {
-							// 自动重命名项目入口文档
-							setTimeout(async ()=>{
-								await this.app.vault.rename(this.app.vault.getAbstractFileByPath(`${file.path}/${oldPath.split("/").pop()}.md`), `${file.path}/${file.name}.md`)
-									.then(() => {
-										// new Notice(`自动重命名项目入口文档`) 
-										return
-									})
-									.catch(async reason => {
-										// 重命名文件夹失败、还原文档名称
-										await this.app.vault.rename(file, oldPath)
-										new Notice(`重命名文档失败、还原文档名称`)
-										return
-									})
-							}, 500)
-							return
-						}
-					}
-				}
-				// if templatesFolder
-				if (oldPath == this.settings.templatesFolderPath) {
-					this.settings.templatesFolderPath = file.path
-					await this.saveSettings()
-				}
+			// if templatesFolder
+			if (oldPath == this.settings.templatesFolderPath) {
+				this.settings.templatesFolderPath = file.path
+				await this.saveSettings()
 			}
-			// 3、finally 更新MOC
-			setTimeout(() => {
-				this.update()
-			}, 1000)
-		}))
-		/**
-		 * delete 监听
-		 * 	文档
-		 * 		if MOC文档
-		 * 			弹出确认面板提示：删除整个MOC
-		 * 		else if 项目入口文档
-		 * 			弹出确认面板提示：删除整个项目
-		 * 	文件夹
-		 * 		if MOC文件夹
-		 * 			弹出确认面板提示：删除整个MOC
-		 * 		else if 项目文件夹
-		 * 			弹出确认面板提示：删除整个项目
-		 * 3、finally 更新MOC
-		 * rename 包括移动在内！！
-		 */
-		this.registerEvent(this.app.vault.on("delete", async (file) => {
-			// 有同名文件夹，说明是项目、MOC文档，提示删除整个文件夹
-			if (file.path.endsWith('.md')) {
-				if (file.path.split('/').pop().replace('.md', '') == file.path.split('/').splice(-2)[0]) {
-					await this.app.vault.adapter.trashSystem(file.path.replace(`/${file.name}`, ''))
-				}
-			}
-			setTimeout(() => {
-				this.update()
-			}, 1000)
+			
 		}))
 		/**
 		 * create 监听
 		 * 	文档
 		 * 		if 位于MOC文件夹一级目录 && 名称!=MOC文件夹
-		 * 			自动创建项目文件夹并将文件移入项目文件夹、弹出提示
-		 * 	文件夹
-		 * 		if 位于MOC文件夹一级目录
-		 * 			弹出确认面板提示：删除整个MOC
-		 * 		else if 项目文件夹
-		 * 			弹出确认面板提示：删除整个项目
-		 * 3、finally 更新MOC
-		 * rename 包括移动在内！！
+		 * 			finally 更新MOC
 		 */
 		this.registerEvent(this.app.vault.on("create", async (file) => {
-			// 有同名文档或者文件夹，说明是项目文件夹、文档或MOC文件夹、项目
-			setTimeout(() => {
-				this.update()
-			}, 1000)
+			// 新创建文档位于MOC文件夹一级目录 && 名称!=MOC文件夹
+			if (file.path.endsWith('.md')) {
+				if (this.getAllMOCFoldersPathList().indexOf(file.parent.path) != -1 && file.name.replace('.md', '') != file.parent.name) {
+					if (this.app.vault.getAbstractFileByPath(`${file.parent.path}/${file.parent.name}.md`)) {
+						var template = await new MOCPage(this, `${file.parent.path}/${file.parent.name}.md`).updateTemplate()
+						this.app.vault.adapter.write(file.path, template)
+						setTimeout(() => {
+							new MOCPage(this, `${file.parent.path}/${file.parent.name}.md`).update()
+						}, 3000)
+					}
+				}
+			}
 		}))
 		
 	}
@@ -345,7 +252,14 @@ export default class MOCPlugin extends Plugin {
 	}
 
 	async update() {
+		this.attachmentsFolderName = this.app.vault.config.attachmentFolderPath.replace("./", '')
 		// 模板文件MOCTemplate
+		await this.updateTemplate()
+		// 更新索引
+		this.getAllMOCPages()
+		// new Notice("MOC: 更新索引完成")
+	}
+	async updateTemplate() {
 		this.MOCTemplate = '---\n\nkanban-plugin: basic\nMOC-plugin: MOC\n\n---\n## 🗃️信息\n\n\n\n%% kanban:settings\n```\n{"kanban-plugin":"basic"}\n```\n%%'
 		if (this.settings.templatesFolderPath) {
 			if (this.app.vault.getAbstractFileByPath(`${this.settings.templatesFolderPath}/MOCTemplate.md`)) {
@@ -383,9 +297,6 @@ export default class MOCPlugin extends Plugin {
 				}
 			}
 		}
-		// 更新索引
-		this.getAllMOCPages()
-		// new Notice("MOC: 更新索引完成")
 	}
 
 	/**
@@ -394,7 +305,6 @@ export default class MOCPlugin extends Plugin {
 	 * @returns 
 	 */
 	async getAllMOCPages(): Promise<Array<MOCPage>> {
-		this.attachmentsFolderName = this.app.vault.config.attachmentFolderPath.replace("./", '')
 		var AllMOCPages: Array<MOCPage> = new Array()
 		for (var MOCPagePath of this.getAllMOCPagesPathList()) {
 			await new MOCPage(this, MOCPagePath).update()
@@ -409,11 +319,15 @@ export default class MOCPlugin extends Plugin {
 	getAllMOCPagesPathList() {
 		var pathList: Array<string> = new Array()
 		for (var file of this.app.vault.getMarkdownFiles()) {
-			var cahe = this.app.metadataCache.getCache(file.path)
-			if (cahe.hasOwnProperty("frontmatter")) {
-				if (cahe.frontmatter.hasOwnProperty("MOC-plugin")) {
-					if (cahe.frontmatter["MOC-plugin"]) {
-						pathList.push(file.path)
+			if (file.parent.path != this.settings.templatesFolderPath) {
+				var cache = this.app.metadataCache.getCache(file.path)
+				if (cache) {
+					if (cache.hasOwnProperty("frontmatter")) {
+						if (cache.frontmatter.hasOwnProperty("MOC-plugin")) {
+							if (cache.frontmatter["MOC-plugin"]) {
+								pathList.push(file.path)
+							}
+						}
 					}
 				}
 			}
@@ -423,7 +337,9 @@ export default class MOCPlugin extends Plugin {
 	getAllMOCFoldersPathList() {
 		var pathList: Array<string> = new Array()
 		for (var MOCPagePath of this.getAllMOCPagesPathList()) {
-			pathList.push(this.app.vault.getAbstractFileByPath(MOCPagePath).parent.path)
+			if (MOCPagePath.split('/').pop().replace(".md", '') == MOCPagePath.split('/').splice(-2)[0]) {
+				pathList.push(this.app.vault.getAbstractFileByPath(MOCPagePath).parent.path)
+			}
 		}
 		return pathList
 	}
@@ -486,6 +402,20 @@ export default class MOCPlugin extends Plugin {
 		}
 		return null
 	}
+
+	// 检查名称是否符合格式
+	checkNameFormat(name: string) {
+		if (name){
+			for (var cha of name){
+				if ('.*"\\/<>:|?'.indexOf(cha) != -1){
+					new Notice("命名不得出现以下字符: .*\"\\/<>:|?")
+					return false
+				}
+			}
+			return true
+		}
+		else return false;
+	}
 }
 
 
@@ -522,6 +452,7 @@ class MOCPage{
 	}
 
 	async renamePage(newPagePath: string) {
+		// 重命名文档
 		return await this.vault.rename(this.tabStractFile, newPagePath)
 			.then(async () => { 
 				// new Notice(`MOC文档: ${this.path} => ${newPagePath}`)
@@ -546,35 +477,48 @@ class MOCPage{
 			})
 	}
 
+	async updateTemplate() {
+		// ========================== 项目模板获取 ========================== 
+		this.itemTemplate = ''
+		if (this.plugin.settings.templatesFolderPath) {
+			if (this.vault.getAbstractFileByPath(`${this.plugin.settings.templatesFolderPath}/${this.baseName}-template.md`)) {
+				this.itemTemplate = await this.vault.adapter.read(`${this.plugin.settings.templatesFolderPath}/${this.baseName}-template.md`)
+			}
+		}
+		return this.itemTemplate
+	}
+
 	async update() {
-		await this.__updateItemTemplate()
-		// 若无父文件夹
+		await this.updateTemplate()
+
+		// ========================== 检查并整理文件格式 ========================== 
+		var fileOperation = false
+		/** 
+		 * 若MOC无父文件夹：
+		 * 		在根目录新建MOC文件夹
+		 * 		移动MOC文档到MOC文件夹
+		 */
 		if (this.parent.name != this.baseName) {
 			await this.vault.createFolder(`${this.parent.path}/${this.baseName}`)
 				.then(async () => {
+					// 移动MOC文档至父文件夹
 					if (!await this.renamePage(`${this.path.replace(".md", '')}/${this.name}`)) {
 						return false
 					}
+					else {
+						fileOperation = true
+					}
 				})
 				.catch(reason => {
-					myNotice(`为无MOC文件夹的MOC文档: ${this.baseName} 创建新的MOC文件失败:\n${reason}`)
+					myNotice(`为MOC文档: ${this.baseName} 创建新的MOC文件失败:\n${reason}`)
 					return 
 				})
 		}
-		// 判断是否位于项目文件夹下
-		for (var itemFolderPath of this.plugin.getAllItemFoldersPathList()) {
-			if (this.parent.path.startsWith(itemFolderPath) && this.parent.path.split('/').length > itemFolderPath.split('/').length) {
-				new Notice(`MOC文件夹不可位于项目文件夹中`)
-				if (!await this.renameFolder(this.baseName)) {
-					return false
-				}
-			}
-		} 
 		/**
 		 * 当前文件夹下的文档：
 		 * 		有同名文件夹：
-		 * 			该同名文件夹里有入口文档：名称后添加“-重复”移动该文档至项目文件夹
-		 * 			该同名文件夹里无入口文档：移动该文档至项目文件夹
+		 * 			同名文件夹中有入口文档：先在名称后添加-重复，再移动该文档至项目文件夹
+		 * 			同名文件夹中无入口文档：移动该文档至项目文件夹
 		 * 		无同名文件夹：新建项目文件夹并移动该文档至项目文件夹
 		 * 当前文件夹下的文件夹（除附件文件夹外）
 		 * 		缺少入口文档：
@@ -584,31 +528,40 @@ class MOCPage{
 		 */
 		for (var child of this.parent.children) {
 			if (child.name != this.name) {
-				// 当前文件夹下的文档：新建项目文件夹并移动该文档至项目文件夹
+				// 当前文件夹下的文档：
 				if (child.name.indexOf(".md") != -1) {
-					// 当前路径下有同名文件夹
+					// 有同名文件夹：移动该文档至项目文件夹
 					if (this.vault.getAbstractFileByPath(child.path.replace(".md", ''))) {
-						// 该同名文件夹里有入口文档：名称后添加“-重复”移动该文档至项目文件夹
+						// 同名文件夹中有入口文档：移动该文档至项目文件夹并在名称后添加-重复
 						if (this.vault.getAbstractFileByPath(`${child.path.replace(".md", '')}/${child.name}`)) {
-							await this.vault.rename(child, `${child.path.replace(".md", '')}/${child.name.replace(".md", '')}-重复.md`)
-							.then(async () => {
-								// new Notice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 已移动至项目文件夹`)
-							})
-							.catch(reason => {
-								myNotice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 移动至项目文件夹失败:\n${reason}`)
-								return 
-							}) 
+							await this.vault.rename(child, `${child.parent.path}/${child.name.replace(".md", '')}-重复.md`)
+								.then(async () => {
+									await this.vault.rename(child, `${child.path.replace("-重复.md", '')}/${child.name}`)
+										.then(async () => {
+											// new Notice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 已移动至项目文件夹`)
+											fileOperation = true
+										})
+										.catch(reason => {
+											myNotice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 移动至项目文件夹失败:\n${reason}`)
+											return 
+										}) 
+								})
+								.catch(reason => {
+									myNotice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 重命名失败:\n${reason}`)
+									return 
+								})
 						}
-						// 该同名文件夹里无入口文档：移动该文档至项目文件夹
+						// 同名文件夹中无入口文档：移动该文档至项目文件夹
 						else {
 							await this.vault.rename(child, `${child.path.replace(".md", '')}/${child.name}`)
-							.then(async () => {
-								// new Notice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 已移动至项目文件夹`)
-							})
-							.catch(reason => {
-								myNotice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 移动至项目文件夹失败:\n${reason}`)
-								return 
-							})
+								.then(async () => {
+									// new Notice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 已移动至项目文件夹`)
+									fileOperation = true
+								})
+								.catch(reason => {
+									myNotice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 移动至项目文件夹失败:\n${reason}`)
+									return 
+								})
 						}
 					}
 					// 无同名文件夹：新建项目文件夹并移动该文档至项目文件夹
@@ -617,6 +570,7 @@ class MOCPage{
 							.then(async () => {
 								await this.vault.rename(child, `${child.path.replace(".md", '')}/${child.name}`)
 									.then(async () => {
+										fileOperation = true
 										// new Notice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 缺少项目文件夹，已自动创建并移动文档`)
 									})
 									.catch(reason => {
@@ -633,12 +587,12 @@ class MOCPage{
 				// 当前文件夹下的文件夹（除附件文件夹外）
 				else if (child.name.indexOf(".") == -1 && child.name != this.plugin.attachmentsFolderName) {
 					// 缺少入口文档
-					// 当前路径下有同名文档：移动同名文档至当前文件夹
-					// 无同名文档：新建入口文档
 					if (!this.vault.getAbstractFileByPath(`${child.path}/${child.name}.md`)) {
+						// 有同名文档：移动同名文档至当前文件夹
 						if (this.vault.getAbstractFileByPath(`${child.path}.md`)) {
 							await this.vault.rename(this.vault.getAbstractFileByPath(`${child.path}.md`), `${child.path}/${child.name}.md`)
 								.then(async () => {
+									fileOperation = true
 									// new Notice(`MOC: ${this.baseName} 下的项目入口文档: ${child.name.replace(".md", '')} 已移动至项目文件夹`)
 								})
 								.catch(reason => {
@@ -646,15 +600,17 @@ class MOCPage{
 									return 
 								})
 						}
+						// 无同名文档：新建入口文档
 						else {
 							await this.vault.create(`${child.path}/${child.name}.md`, this.itemTemplate)
-							.then(async () => {
-								new Notice(`MOC: ${this.baseName} 下的项目文件夹: ${child.name} 缺少入口文档，已自动创建`)
-							})
-							.catch(reason => {
-								myNotice(`为MOC: ${this.baseName} 下的项目文件夹: ${child.name} 创建缺少入口文档失败:\n${reason}`)
-								return
-							})
+								.then(async () => {
+									fileOperation = true
+									new Notice(`MOC: ${this.baseName} 下的项目文件夹: ${child.name} 缺少入口文档，已自动创建`)
+								})
+								.catch(reason => {
+									myNotice(`为MOC: ${this.baseName} 下的项目文件夹: ${child.name} 创建缺少入口文档失败:\n${reason}`)
+									return
+								})
 						}
 					}
 				}
@@ -663,9 +619,13 @@ class MOCPage{
 					// 先判断附件文件夹是否存在: 若不存在则创建该文件夹
 					if (!this.vault.getAbstractFileByPath(`${child.parent.path}/${this.plugin.attachmentsFolderName}`)) {
 						await this.vault.createFolder(`${child.parent.path}/${this.plugin.attachmentsFolderName}`)
+							.then(() => {
+								fileOperation = true
+							})
 					}
 					await this.vault.rename(child, `${child.parent.path}/${this.plugin.attachmentsFolderName}/${child.name}`)
 						.then(async () => {
+							fileOperation = true
 							new Notice(`MOC: ${this.baseName} 下的非文档文件: ${child.name} 已移动至附件文件夹内`)
 						})
 						.catch(reason => {
@@ -675,7 +635,17 @@ class MOCPage{
 				}
 			}
 		}
-		// 自动获取所有项目
+		if (fileOperation) {
+			setTimeout(async () => {
+				await this.update()
+			}, 500)
+			return
+		}
+
+		// ========================== 项目获取与索引更新 ========================== 
+		/**
+		 * 自动获取所有项目
+		 */
 		this.ItemPages = []
 		for (var child of this.parent.children) {
 			// 非附件文件夹
@@ -686,56 +656,116 @@ class MOCPage{
 		/**
 		 * 更新MOC索引
 		 * 获取新增的未被索引的项目、删除失效的项目链接
+		 * 		检查当前MOC的已链接项目文档
+		 * 			删除、替换失效链接
+		 * 			整理链接路径为相对路径
+		 * 		获取未被引用的项目文档并处理成看板卡片的形式
+		 * 更新索引
+		 * 		如果有未被索引的项目的话：就处理新旧内容合并、内容插入的位置
+		 * 写入MOC
 		 */
 		var indexedItems: Array<ItemPage> = new Array()
 		var MOCCache = this.plugin.app.metadataCache.getCache(this.path)
 		var content = await this.vault.adapter.read(this.path)
-		if (MOCCache.hasOwnProperty("links")) {
-			for (var link of MOCCache.links) { 
-				var existItem = false
-				// 是文档
-				if (link.link.endsWith('.md')) {
-					// 1、判断 link.link 的形式为：itemName/itemName.md
-					if (link.link.split("/").length == 2) {
-						if (link.link.split("/")[0] == link.link.split("/")[1].replace(".md", "")) {
-							// 获取新增未被索引的项目
-							for (var itemPage of this.ItemPages) {
-								if (link.link == itemPage.path.replace(`${itemPage.parent.parent.path}/`, '')) {
-									existItem = true
-									indexedItems.push(itemPage)
-									break
+		if (MOCCache) {
+			if (MOCCache.hasOwnProperty("links")) {
+				for (var link of MOCCache.links) { 
+					var existItem = false
+					// 链接的对象是当前文件夹内的文档
+					if (link.link.endsWith('.md') && !link.link.startsWith('../')) {
+						// 判断 link.original 的形式为：[[]]
+						if (link.original.endsWith(']]')) {
+							// 1、判断 link.link 的形式为：itemName/itemName.md
+							if (link.link.split("/").length == 2) {
+								if (link.link.split("/")[0] == link.link.split("/")[1].replace(".md", "")) {
+									// 获取新增未被索引的项目
+									for (var itemPage of this.ItemPages) {
+										if (link.link == itemPage.path.replace(`${itemPage.parent.parent.path}/`, '')) {
+											existItem = true
+											indexedItems.push(itemPage)
+											break
+										}
+									}
+									if (!existItem) {
+										content = content
+											.replace(`- [ ] ${link.original}\n`, '')
+											.replace(`- [x] ${link.original}\n`, '')
+											.replace(`${link.original}`, ` ${link.link.split("/")[1]} `)
+									}
+									// 若这种形式的链接对应的项目不存在，则删除该链接的卡片或进行替换
 								}
 							}
-							if (!existItem) {
-								content = content
-									.replace(`- [ ] ${link.original}\n`, '')
-									.replace(`- [x] ${link.original}\n`, '')
-									.replace(`${link.original}`, ` ${link.link.split("/")[1]} `)
+							// 2、判断 link.link 的形式为：itemName.md
+							else if (link.link.split("/").length == 1 ) {
+								// 获取新增未被索引的项目
+								for (var itemPage of this.ItemPages) {
+									if (link.link == itemPage.name) {
+										existItem = true
+										indexedItems.push(itemPage)
+										break
+									}
+								}
+								if (existItem) { 
+									content = content.replace(link.original, `[${itemPage.baseName}](${itemPage.baseName}/${itemPage.name})`)
+								}
+								else {
+									content = content
+										.replace(`- [ ] ${link.original}\n`, '')
+										.replace(`- [x] ${link.original}\n`, '')
+										.replace(`${link.original}`, ` ${link.link.split("/")[1]} `)
+								}
 							}
-							// 若这种形式的链接对应的项目不存在，则删除该链接的卡片或进行替换
 						}
-					}
-					// 2、判断 link.link 的形式为：itemName.md
-					else if (link.link.split("/").length == 1 ) {
-						// 获取新增未被索引的项目
-						for (var itemPage of this.ItemPages) {
-							if (link.link == itemPage.name) {
-								existItem = true
-								indexedItems.push(itemPage)
-								break
+						// 判断 link.original 的形式为：[]()
+						else {
+							// 1、判断 link.link 的形式为：itemName/itemName.md
+							if (link.link.split("/").length == 2) {
+								if (link.link.split("/")[0] == link.link.split("/")[1].replace(".md", "")) {
+									// 获取新增未被索引的项目
+									for (var itemPage of this.ItemPages) {
+										if (link.link == itemPage.path.replace(`${itemPage.parent.parent.path}/`, '')) {
+											existItem = true
+											indexedItems.push(itemPage)
+											break
+										}
+									}
+									if (!existItem) {
+										content = content
+											.replace(`- [ ] ${link.original}\n`, '')
+											.replace(`- [x] ${link.original}\n`, '')
+											.replace(`${link.original}`, ` ${link.link.split("/")[1]} `)
+									}
+									// 若这种形式的链接对应的项目不存在，则删除该链接的卡片或进行替换
+								}
+							}
+							// 2、判断 link.link 的形式为：itemName.md
+							else if (link.link.split("/").length == 1 ) {
+								// 获取新增未被索引的项目
+								for (var itemPage of this.ItemPages) {
+									if (link.link == itemPage.name) {
+										existItem = true
+										indexedItems.push(itemPage)
+										break
+									}
+								}
+								if (existItem) { 
+									content = content.replace(link.original, `[${itemPage.baseName}](${itemPage.baseName}/${itemPage.name})`)
+								}
+								else {
+									content = content
+										.replace(`- [ ] ${link.original}\n`, '')
+										.replace(`- [x] ${link.original}\n`, '')
+										.replace(`${link.original}`, ` ${link.link.split("/")[1]} `)
+								}
 							}
 						}
-						if (existItem) { 
-							content = content.replace(link.original, `[${itemPage.baseName}](${itemPage.baseName}/${itemPage.name})`)
-						}
-						// 若这种形式的链接对应的项目不存在，则删除该链接的卡片或进行替换
 					}
 				}
 			}
 		}
-		// 获取未被引用的项目
+		// 获取未被引用的项目文档并处理成看板卡片的形式
 		var notIndexedItems: Array<ItemPage> = new Array()
-		var newContent = '- [ ] ### 新增未索引项目\n'
+		var newContent = ''
 		for (var itemPage of this.ItemPages) {
 			var indexed = false
 			for (var indexedItem of indexedItems) {
@@ -755,7 +785,7 @@ class MOCPage{
 			}
 		}
 		// 如果有未索引的项目的话，就处理新旧内容合并、内容插入的位置
-		if (notIndexedItems.length) {
+		if (newContent) {
 			var contentLines = content.split("\n")
 			var insertLineNumber = 0
 			if (content.indexOf("\n## ") != -1) {		// 如果有二级标题，插在第一个二级标题后面
@@ -781,29 +811,12 @@ class MOCPage{
 			}
 			content = contentLines.join('\n')
 		}
-
 		// 写入
 		await this.vault.adapter.write(this.path, content)
 
 		return this
 	}
 
-	// 项目模板获取
-	/**
-	 * @private
-	 */
-	async __updateItemTemplate() {
-		this.itemTemplate = ''
-		if (this.plugin.settings.templatesFolderPath) {
-			if (this.vault.getAbstractFileByPath(`${this.plugin.settings.templatesFolderPath}/${this.baseName}-template.md`)) {
-				this.itemTemplate = await this.vault.adapter.read(`${this.plugin.settings.templatesFolderPath}/${this.baseName}-template.md`)
-			}
-		}
-	} 
-
-	moveToAnotherMOC() {
-
-	}
 }
 
 class ItemPage{
@@ -830,38 +843,303 @@ class ItemPage{
 		this.baseName = ItemPage.name.replace(".md", "")
 		this.MOCPage = new MOCPage(plugin, `${this.parent.parent.path}/${this.parent.parent.path.split('/').pop()}.md`)
 	}
+}
 
-	/**
-	 * 移动至另一个MOC
-	 * @param anotherMOCPagePath 移动的目标MOCPage路径
-	 */
-	async moveToAnotherMOC(anotherMOCPagePath: string) {
-		// 检查是否有为MOC
-		var cache = this.plugin.app.metadataCache.getCache(anotherMOCPagePath)
-		if (cache.hasOwnProperty("frontmatter")) {
-			if (cache.frontmatter.hasOwnProperty("MOC-plugin")) {
-				if (cache.frontmatter["MOC-plugin"] == true) {
-					// 检查是否有重复文件
-					for (var child of this.vault.getAbstractFileByPath(anotherMOCPagePath).parent.children) {
-						if (child.name == this.baseName) {
-							new Notice(`MOC: ${anotherMOCPagePath} 下已存在同名项目，可修改名称后再进行移动`)
-							return false
-						}
+// 新建文件面板
+class myModal extends Modal {
+	plugin: MOCPlugin;
+	folderName: string;
+	cmdName: string;
+	PagePath: string
+
+	constructor(plugin: MOCPlugin, cmdName: string, PagePath: string) {
+		/**path 为
+		 */
+		super(plugin.app);
+		this.plugin = plugin;
+		this.cmdName = cmdName;
+		this.PagePath = PagePath
+	}
+
+	onOpen(): void {
+		switch(this.cmdName) {
+			case "移动至另一个MOC": this.moveToAnotherMOC(); break;
+			case "重命名该项目": this.renameItem(); break;
+			case "删除该项目": this.deleteItem();break;
+			default: break;
+	   }
+	}
+
+	onClose(): void {
+	}
+
+	moveToAnotherMOC() {
+
+		// ============ 面板界面 ============
+		const {contentEl} = this;
+		
+		// 1、设置标题
+		const title = this.titleEl
+		title.setText(`${this.cmdName}`);
+
+		// 2、无刷新表单
+		contentEl.createEl("iframe", {
+			'attr': {
+				'id': 'id_iframe',
+				'name': 'id_iframe',
+				'style': 'display:none',
+			}
+		})
+
+		var form = contentEl.createEl("form", {
+			'attr': {
+				'target': 'id_iframe',
+			}
+		})
+
+		var newItemName = form.createEl("input", {
+			'attr': {
+				"class": "kanbanMOC",
+				'target': 'id_iframe',
+				'type': 'text',
+				"list": 'MOC'
+			}
+		})
+		newItemName.placeholder = "MOC的文件夹路径";
+		var searchResult = form.createEl("datalist", {
+			"attr": {
+				"id": "MOC"
+			}
+		})
+		//模糊查询1:利用字符串的indexOf方法
+		function searchByIndexOf(keyWord: string){
+			var list = modal.plugin.getAllMOCFoldersPathList()
+			
+			var len = list.length;
+			var arr = [];
+			for(var i=0;i<len;i++){
+				//如果字符串中不包含目标字符会返回-1
+				if(list[i].toLowerCase().indexOf(keyWord.toLowerCase())>=0){
+					arr.push(list[i]);
+				}
+			}
+			return arr;
+		}
+		newItemName.oninput = function() {
+			searchResult.empty()
+			var list = searchByIndexOf(newItemName.value)
+			if(!(list instanceof Array)){
+				return ;
+			}
+			for(var i=0;i<list.length;i++){
+				var item = document.createElement('option');
+				item.innerHTML = list[i];
+				searchResult.appendChild(item);
+			}
+		}
+
+		form.createEl("input", {
+			'attr': {
+				"class": "kanbanMOC",
+				'target': 'id_iframe',
+				'type': 'submit',
+				'value': '   确定    '
+			}
+		})
+
+		// ============ 执行操作 ============
+		var modal = this
+		var vault = modal.app.vault
+
+		form.onsubmit = function(){
+			var file = vault.getAbstractFileByPath(modal.PagePath)
+			// 检查是否为MOC文件夹
+			if (modal.plugin.getAllMOCFoldersPathList().indexOf(newItemName.value) != -1) {
+				var newMOCPagePath = `${newItemName.value}/${newItemName.value.split("/").pop()}.md`
+				// 是MOCPage
+				if (modal.plugin.getAllMOCPagesPathList().indexOf(modal.PagePath) != -1) {
+					// 检查MOC路径是否不同当前MOC路径一致：
+					if (newItemName.value != file.parent.path) {
+						// 开始移动
+						modal.app.vault.rename(file.parent, `${newItemName.value}/${file.parent.name}`)
+						// 更新MOC
+						var oldMOCPagePath = `${file.parent.parent.path}/${file.parent.parent.path.split("/").pop()}.md`
+						setTimeout(() => {
+							if (modal.plugin.getAllMOCPagesPathList().indexOf(newMOCPagePath) != -1) {
+								new MOCPage(modal.plugin, newMOCPagePath).update()
+							}
+							if (modal.plugin.getAllMOCPagesPathList().indexOf(oldMOCPagePath) != -1) {
+								new MOCPage(modal.plugin, oldMOCPagePath).update()
+							}
+						}, 1000)
+						modal.close()
 					}
-					return await this.vault.rename(this.parent, `${this.vault.getAbstractFileByPath(anotherMOCPagePath).parent.path}/${this.baseName}`)
-						.then(() => {
-							new Notice(`项目文档及其文件夹: ${this.baseName} 已移动至MOC: ${anotherMOCPagePath} 下`)
-							return true
-						})
-						.catch((reason) => {
-							myNotice(reason)
-							return false
-						})
+					else {
+						new Notice('请输入不同于当前MOC的路径')
+					}
+				}
+				// 是项目入口文档
+				else {
+					// 检查MOC路径是否不同当前MOC路径一致：
+					if (newItemName.value != file.parent.parent.path) {
+						// 开始移动
+						modal.app.vault.rename(file.parent, `${newItemName.value}/${file.parent.name}`)
+						// 更新MOC
+						var oldMOCPagePath = `${file.parent.parent.path}/${file.parent.parent.path.split("/").pop()}.md`
+						setTimeout(() => {
+							if (modal.plugin.getAllMOCPagesPathList().indexOf(newMOCPagePath) != -1) {
+								new MOCPage(modal.plugin, newMOCPagePath).update()
+							}
+							if (modal.plugin.getAllMOCPagesPathList().indexOf(oldMOCPagePath) != -1) {
+								new MOCPage(modal.plugin, oldMOCPagePath).update()
+							}
+						}, 1000)
+						modal.close()
+					}
+					else {
+						new Notice('请输入不同于当前MOC的路径')
+					}
+				}
+			}
+			else {
+				new Notice('请输入正确的MOC文件夹路径')
+			}
+		}
+	}
+
+	renameItem() {
+
+		// ============ 面板界面 ============
+		const {contentEl} = this;
+		
+		// 1、设置标题
+		const title = this.titleEl
+		title.setText(`${this.cmdName}`);
+
+		// 2、无刷新表单
+		contentEl.createEl("iframe", {
+			'attr': {
+				'id': 'id_iframe',
+				'name': 'id_iframe',
+				'style': 'display:none',
+			}
+		})
+
+		var form = contentEl.createEl("form", {
+			'attr': {
+				'target': 'id_iframe',
+			}
+		})
+
+		var newItemName = form.createEl("input", {
+			'attr': {
+				"class": "kanbanMOC",
+				'target': 'id_iframe',
+				'type': 'text'
+			}
+		})
+		newItemName.placeholder = "新名称";
+
+		form.createEl("input", {
+			'attr': {
+				"class": "kanbanMOC",
+				'target': 'id_iframe',
+				'type': 'submit',
+				'value': '   确定    '
+			}
+		})
+
+		// ============ 执行操作 ============
+		var modal = this
+		var vault = modal.app.vault
+
+		form.onsubmit = async function(){
+			var file = vault.getAbstractFileByPath(modal.PagePath)
+			var MOCPagePath = `${file.parent.parent.path}/${file.parent.parent.name}.md`
+			var MOCpage = await new MOCPage(modal.plugin, MOCPagePath).update()
+			// 检查有无重名项目
+			if (modal.plugin.checkNameFormat(newItemName.value)) {
+				var okToGo = true
+				for (var child of MOCpage.ItemPages) {
+					if (child.baseName == newItemName.value) {
+						okToGo = false
+						new Notice(`当前MOC中已存在该名称项目，请重新输入`)
+					}
+				}
+				if (okToGo) {
+					await vault.rename(file, `${file.parent.path}/${newItemName.value}.md`)
+					new Notice(`已重命名项目: ${file.parent.name}`)
+					modal.close()
 				}
 			}
 		}
-		new Notice(`不存在该MOC: ${anotherMOCPagePath}`)
-		return false
+	}
+
+	deleteItem() {
+		// ============ 面板界面 ============
+		const {contentEl} = this;
+		
+		// 1、设置标题
+		const title = this.titleEl
+		title.setText(`⚠️ ${this.cmdName} ⚠️`);
+
+		// 2、无刷新表单
+		contentEl.createEl("iframe", {
+			'attr': {
+				'id': 'id_iframe',
+				'name': 'id_iframe',
+				'style': 'display:none',
+			}
+		})
+
+		var form = contentEl.createEl("form", {
+			'attr': {
+				'target': 'id_iframe',
+			}
+		})
+
+		var newItemName = form.createEl("input", {
+			'attr': {
+				"class": "kanbanMOC",
+				'target': 'id_iframe',
+				'type': 'text',
+				"onpaste": "return false",
+				"oncut": "return false"
+			}
+		})
+		newItemName.placeholder = "请手动输入: 确认删除";
+
+		form.createEl("input", {
+			'attr': {
+				"class": "kanbanMOC",
+				'target': 'id_iframe',
+				'type': 'submit',
+				'value': '   确定    '
+			}
+		})
+
+		// ============ 执行操作 ============
+		var modal = this
+		var vault = modal.app.vault
+
+		form.onsubmit = async function(){
+			if (newItemName.value == '确认删除') {
+				var file = vault.getAbstractFileByPath(modal.PagePath)
+				var MOCPagePath = `${file.parent.parent.path}/${file.parent.parent.name}.md`
+				vault.trash(file.parent, true)
+				new Notice(`已删除项目: ${file.parent.name}`)
+				// 更新MOC
+				setTimeout(() => {
+					if (modal.plugin.getAllMOCPagesPathList().indexOf(MOCPagePath) != -1) {
+						new MOCPage(modal.plugin, MOCPagePath).update()
+					}
+				}, 1000)
+				modal.close()
+			}
+			else {
+				new Notice(`请手动输入: 确认删除`)
+			}
+		}
 	}
 }
 
@@ -890,18 +1168,88 @@ class SettingTab extends PluginSettingTab {
 		containerEl.createEl('div').setText("1、为新建的MOC设置一个模板: 则在模板文件夹下新建一个名为“MOCTemplate.md”的文档")
 		containerEl.createEl('div').setText("2、为某个MOC新建的项目设置一个模板: 则在模板文件夹下新建一个名为“MOC名称-template.md”的文档")
 		
+		var list = new Array()
+		for (var file of this.app.vault.getAllLoadedFiles()) {
+			if (file.name.indexOf(".") == -1) {
+				if (this.plugin.getAllMOCFoldersPathList().indexOf(file.path) == -1) {
+					list.push(file.path)
+				}
+			}
+		}
 
-		// 新建一个设置选项
-		new Setting(containerEl)
-			.setName('模板文件夹路径')
-			.addText(text => text
-				.setPlaceholder('例如 AllFiles/templates')
-				.setValue(this.plugin.settings.templatesFolderPath)
-				.onChange(async (value) => {
-					this.plugin.settings.templatesFolderPath = value;
-					await this.plugin.saveSettings();
-				})
-			);
+		containerEl.createEl("iframe", {
+			'attr': {
+				'id': 'id_iframe',
+				'name': 'id_iframe',
+				'style': 'display:none',
+			}
+		})
+
+		var form = containerEl.createEl("form", {
+			'attr': {
+				'target': 'id_iframe',
+			}
+		})
+
+		var newItemName = form.createEl("input", {
+			'attr': {
+				"class": "kanbanMOC",
+				'target': 'id_iframe',
+				'type': 'text',
+				"list": 'MOC',
+				'value': this.plugin.settings.templatesFolderPath,
+				'style': 'width: 80%;'
+			}
+		})
+		newItemName.placeholder = "模板文件夹路径";
+		var searchResult = form.createEl("datalist", {
+			"attr": {
+				"id": "MOC"
+			}
+		})
+		
+		//模糊查询1:利用字符串的indexOf方法
+		function searchByIndexOf(keyWord: string){
+			
+			var len = list.length;
+			var arr = [];
+			for(var i=0;i<len;i++){
+				//如果字符串中不包含目标字符会返回-1
+				if(list[i].toLowerCase().indexOf(keyWord.toLowerCase())>=0){
+					arr.push(list[i]);
+				}
+			}
+			return arr;
+		}
+		newItemName.oninput = function() {
+			searchResult.empty()
+			console.log(list)
+			var list = searchByIndexOf(newItemName.value)
+			if(!(list instanceof Array)){
+				return ;
+			}
+			for(var i=0;i<list.length;i++){
+				var item = document.createElement('option');
+				item.innerHTML = list[i];
+				searchResult.appendChild(item);
+			}
+		}
+
+		form.createEl("input", {
+			'attr': {
+				"class": "kanbanMOC",
+				'target': 'id_iframe',
+				'type': 'submit',
+				'value': '   确定    '
+			}
+		})
+
+		var plugin = this.plugin
+		form.onsubmit = async function(){
+			plugin.settings.templatesFolderPath = newItemName.value;
+			await plugin.saveSettings();
+			new Notice('修改成功')
+		}
 		
 	}
 }
