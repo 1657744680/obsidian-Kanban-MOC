@@ -1,5 +1,5 @@
 import { appendFile, fstat, readFile, rename, writeFile } from 'fs';
-import { App, Editor, MarkdownView,SearchComponent,Vault, Modal, Notice, Plugin, PluginSettingTab, Setting, WorkspaceItem, Menu, TFile, MenuItem, TAbstractFile, LinkCache} from 'obsidian';
+import { App, Editor, MarkdownView,SearchComponent,Vault, Modal, Notice, Plugin, PluginSettingTab, Setting, WorkspaceItem, Menu, TFile, MenuItem, TAbstractFile, LinkCache, FileManager} from 'obsidian';
 import { isAbsolute } from 'path';
 import * as path from 'path/posix';
 
@@ -141,6 +141,7 @@ export default class MOCPlugin extends Plugin {
 		 * 	if templatesFolder
 		 * 		自动赋值保存设置
 		 */
+		// 问题：自动重命名不会自动更新库中的链接
 
 		this.registerEvent(this.app.vault.on("rename", async (file, oldPath) => {
 			// 1、文档
@@ -153,7 +154,7 @@ export default class MOCPlugin extends Plugin {
 						if (!this.doesFileOrFolderHasTheSameName(file.path)) {
 							// 自动重命名MOC文件夹、弹出提示
 							setTimeout(async () => {
-								await this.app.vault.rename(file.parent, `${file.parent.parent.path}/${file.name.replace(".md", '')}`)
+								await this.app.fileManager.renameFile(file.parent, `${file.parent.parent.path}/${file.name.replace(".md", '')}`)
 									.then(() => {
 										// new Notice(`自动重命名MOC文件夹`)
 										// 更新MOC
@@ -166,7 +167,7 @@ export default class MOCPlugin extends Plugin {
 									})
 									.catch(async reason => {
 										// 重命名文件夹失败、还原文档名称
-										await this.app.vault.rename(file, oldPath)	
+										await this.app.fileManager.renameFile(file, oldPath)	
 										myNotice(`重命名文件夹失败、还原文档名称`)
 										return
 									})
@@ -180,7 +181,7 @@ export default class MOCPlugin extends Plugin {
 						if (!this.doesFileOrFolderHasTheSameName(file.path)) {
 							// 自动重命名项目文件夹、弹出提示
 							setTimeout(async () => {
-								await this.app.vault.rename(file.parent, `${file.parent.parent.path}/${file.name.replace(".md", '')}`)
+								await this.app.fileManager.renameFile(file.parent, `${file.parent.parent.path}/${file.name.replace(".md", '')}`)
 									.then(() => {
 										// new Notice(`自动重命名项目文件夹`)
 										// 更新MOC
@@ -193,7 +194,7 @@ export default class MOCPlugin extends Plugin {
 									})
 									.catch(async reason => {
 										// 重命名文件夹失败、还原文档名称
-										await this.app.vault.rename(file, oldPath)	
+										await this.app.fileManager.renameFile(file, oldPath)	
 										myNotice(`重命名文件夹失败、还原文档名称`)
 										return
 									})
@@ -210,6 +211,7 @@ export default class MOCPlugin extends Plugin {
 			}
 			
 		}))
+		
 		/**
 		 * create 监听
 		 * 	文档
@@ -362,6 +364,7 @@ export default class MOCPlugin extends Plugin {
 		}
 		return pathList
 	}
+	
 	/**
 	 * 文档是否有同名父文件夹
 	 * 
@@ -421,6 +424,7 @@ export default class MOCPlugin extends Plugin {
 
 class MOCPage{
 	vault: Vault
+	fileManager: FileManager
 	path: string
 	name: string
 	parent: TAbstractFile
@@ -443,6 +447,7 @@ class MOCPage{
 		this.tabStractFile = this.plugin.app.vault.getAbstractFileByPath(MOCPagePath)
 
 		this.vault = this.tabStractFile.vault
+		this.fileManager = this.plugin.app.fileManager
 		this.path = this.tabStractFile.path
 		this.name = this.tabStractFile.name
 		this.parent = this.tabStractFile.parent
@@ -453,7 +458,7 @@ class MOCPage{
 
 	async renamePage(newPagePath: string) {
 		// 重命名文档
-		return await this.vault.rename(this.tabStractFile, newPagePath)
+		return await this.fileManager.renameFile(this.tabStractFile, newPagePath)
 			.then(async () => { 
 				// new Notice(`MOC文档: ${this.path} => ${newPagePath}`)
 				this.init(newPagePath)
@@ -465,7 +470,7 @@ class MOCPage{
 			})
 	}
 	async renameFolder(newFolderPath: string) {
-		return await this.vault.rename(this.parent, newFolderPath)
+		return await this.fileManager.renameFile(this.parent, newFolderPath)
 			.then(async () => { 
 				// new Notice(`MOC文件夹: ${this.parent.path} => ${newFolderPath}`)
 				this.init(`${newFolderPath}/${this.name}`)
@@ -534,9 +539,9 @@ class MOCPage{
 					if (this.vault.getAbstractFileByPath(child.path.replace(".md", ''))) {
 						// 同名文件夹中有入口文档：移动该文档至项目文件夹并在名称后添加-重复
 						if (this.vault.getAbstractFileByPath(`${child.path.replace(".md", '')}/${child.name}`)) {
-							await this.vault.rename(child, `${child.parent.path}/${child.name.replace(".md", '')}-重复.md`)
+							await this.fileManager.renameFile(child, `${child.parent.path}/${child.name.replace(".md", '')}-重复.md`)
 								.then(async () => {
-									await this.vault.rename(child, `${child.path.replace("-重复.md", '')}/${child.name}`)
+									await this.fileManager.renameFile(child, `${child.path.replace("-重复.md", '')}/${child.name}`)
 										.then(async () => {
 											// new Notice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 已移动至项目文件夹`)
 											fileOperation = true
@@ -553,7 +558,7 @@ class MOCPage{
 						}
 						// 同名文件夹中无入口文档：移动该文档至项目文件夹
 						else {
-							await this.vault.rename(child, `${child.path.replace(".md", '')}/${child.name}`)
+							await this.fileManager.renameFile(child, `${child.path.replace(".md", '')}/${child.name}`)
 								.then(async () => {
 									// new Notice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 已移动至项目文件夹`)
 									fileOperation = true
@@ -568,7 +573,7 @@ class MOCPage{
 					else {
 						await this.vault.createFolder(`${child.path.replace(".md", '')}`)
 							.then(async () => {
-								await this.vault.rename(child, `${child.path.replace(".md", '')}/${child.name}`)
+								await this.fileManager.renameFile(child, `${child.path.replace(".md", '')}/${child.name}`)
 									.then(async () => {
 										fileOperation = true
 										// new Notice(`MOC: ${this.baseName} 下的项目文档: ${child.name.replace(".md", '')} 缺少项目文件夹，已自动创建并移动文档`)
@@ -590,7 +595,7 @@ class MOCPage{
 					if (!this.vault.getAbstractFileByPath(`${child.path}/${child.name}.md`)) {
 						// 有同名文档：移动同名文档至当前文件夹
 						if (this.vault.getAbstractFileByPath(`${child.path}.md`)) {
-							await this.vault.rename(this.vault.getAbstractFileByPath(`${child.path}.md`), `${child.path}/${child.name}.md`)
+							await this.fileManager.renameFile(this.vault.getAbstractFileByPath(`${child.path}.md`), `${child.path}/${child.name}.md`)
 								.then(async () => {
 									fileOperation = true
 									// new Notice(`MOC: ${this.baseName} 下的项目入口文档: ${child.name.replace(".md", '')} 已移动至项目文件夹`)
@@ -623,7 +628,7 @@ class MOCPage{
 								fileOperation = true
 							})
 					}
-					await this.vault.rename(child, `${child.parent.path}/${this.plugin.attachmentsFolderName}/${child.name}`)
+					await this.fileManager.renameFile(child, `${child.parent.path}/${this.plugin.attachmentsFolderName}/${child.name}`)
 						.then(async () => {
 							fileOperation = true
 							new Notice(`MOC: ${this.baseName} 下的非文档文件: ${child.name} 已移动至附件文件夹内`)
@@ -961,7 +966,7 @@ class myModal extends Modal {
 					// 检查MOC路径是否不同当前MOC路径一致：
 					if (newItemName.value != file.parent.path) {
 						// 开始移动
-						modal.app.vault.rename(file.parent, `${newItemName.value}/${file.parent.name}`)
+						modal.app.fileManager.renameFile(file.parent, `${newItemName.value}/${file.parent.name}`)
 						// 更新MOC
 						var oldMOCPagePath = `${file.parent.parent.path}/${file.parent.parent.path.split("/").pop()}.md`
 						setTimeout(() => {
@@ -983,7 +988,7 @@ class myModal extends Modal {
 					// 检查MOC路径是否不同当前MOC路径一致：
 					if (newItemName.value != file.parent.parent.path) {
 						// 开始移动
-						modal.app.vault.rename(file.parent, `${newItemName.value}/${file.parent.name}`)
+						modal.app.fileManager.renameFile(file.parent, `${newItemName.value}/${file.parent.name}`)
 						// 更新MOC
 						var oldMOCPagePath = `${file.parent.parent.path}/${file.parent.parent.path.split("/").pop()}.md`
 						setTimeout(() => {
@@ -1052,6 +1057,7 @@ class myModal extends Modal {
 		// ============ 执行操作 ============
 		var modal = this
 		var vault = modal.app.vault
+		var fileManager = modal.app.fileManager
 
 		form.onsubmit = async function(){
 			var file = vault.getAbstractFileByPath(modal.PagePath)
@@ -1067,7 +1073,7 @@ class myModal extends Modal {
 					}
 				}
 				if (okToGo) {
-					await vault.rename(file, `${file.parent.path}/${newItemName.value}.md`)
+					await fileManager.renameFile(file, `${file.parent.path}/${newItemName.value}.md`)
 					new Notice(`已重命名项目: ${file.parent.name}`)
 					modal.close()
 				}
