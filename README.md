@@ -27,7 +27,7 @@
 点进去obsidian看板MOC插件，其中的相关资源项目和未引用文档是通过DataviewJs实现的
 ![image](https://user-images.githubusercontent.com/39726621/146632931-b469ece4-ed83-4c2c-a762-724a10154435.png)
 
-一共7条命令：
+一共7条命令（已经改成2条命令和2个菜单选项了）：
 ![image](https://user-images.githubusercontent.com/39726621/146632996-5475df85-60f2-4ddb-9d26-3cf3ff6bac5c.png)
 
 安装Buttons的话，就可以设置调用命令的按钮以便快速调用命令：
