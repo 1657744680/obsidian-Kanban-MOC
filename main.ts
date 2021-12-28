@@ -111,12 +111,6 @@ export default class MOCPlugin extends Plugin {
 								})
 						})
 						menu.addItem((item: MenuItem) => {
-							item.setTitle('重命名该项目')
-								.onClick(() => {
-									new myModal(this, '重命名该项目', file.path).open()
-								})
-						})
-						menu.addItem((item: MenuItem) => {
 							item.setTitle('⚠️删除该项目')
 								.onClick(() => {
 									new myModal(this, '删除该项目', file.path).open()
@@ -154,12 +148,12 @@ export default class MOCPlugin extends Plugin {
 						if (!this.doesFileOrFolderHasTheSameName(file.path)) {
 							// 自动重命名MOC文件夹、弹出提示
 							setTimeout(async () => {
-								await this.app.fileManager.renameFile(file.parent, `${file.parent.parent.path}/${file.name.replace(".md", '')}`)
+								await this.app.fileManager.renameFile(file.parent, file.parent.path.replace(file.parent.name, file.name.replace(".md", '')))
 									.then(() => {
 										// new Notice(`自动重命名MOC文件夹`)
 										// 更新MOC
 										setTimeout(() => {
-											if (this.app.vault.getAbstractFileByPath(`${file.parent.parent.path}/${file.name.replace(".md", '')}/${file.name}`)) {
+											if (this.app.vault.getAbstractFileByPath(`${file.parent.path.replace(file.parent.name, file.name.replace(".md", ''))}/${file.name}`)) {
 												new MOCPage(this, `${file.parent.parent.path}/${file.name.replace(".md", '')}/${file.name}`).update()
 											}
 										}, 3000)
@@ -446,7 +440,7 @@ class MOCPage{
 	init(MOCPagePath: string){
 		this.tabStractFile = this.plugin.app.vault.getAbstractFileByPath(MOCPagePath)
 
-		this.vault = this.tabStractFile.vault
+		this.vault = this.plugin.app.vault
 		this.fileManager = this.plugin.app.fileManager
 		this.path = this.tabStractFile.path
 		this.name = this.tabStractFile.name
@@ -869,7 +863,6 @@ class myModal extends Modal {
 	onOpen(): void {
 		switch(this.cmdName) {
 			case "移动至另一个MOC": this.moveToAnotherMOC(); break;
-			case "重命名该项目": this.renameItem(); break;
 			case "删除该项目": this.deleteItem();break;
 			default: break;
 	   }
@@ -1008,75 +1001,6 @@ class myModal extends Modal {
 			}
 			else {
 				new Notice('请输入正确的MOC文件夹路径')
-			}
-		}
-	}
-
-	renameItem() {
-
-		// ============ 面板界面 ============
-		const {contentEl} = this;
-		
-		// 1、设置标题
-		const title = this.titleEl
-		title.setText(`${this.cmdName}`);
-
-		// 2、无刷新表单
-		contentEl.createEl("iframe", {
-			'attr': {
-				'id': 'id_iframe',
-				'name': 'id_iframe',
-				'style': 'display:none',
-			}
-		})
-
-		var form = contentEl.createEl("form", {
-			'attr': {
-				'target': 'id_iframe',
-			}
-		})
-
-		var newItemName = form.createEl("input", {
-			'attr': {
-				"class": "kanbanMOC",
-				'target': 'id_iframe',
-				'type': 'text'
-			}
-		})
-		newItemName.placeholder = "新名称";
-
-		form.createEl("input", {
-			'attr': {
-				"class": "kanbanMOC",
-				'target': 'id_iframe',
-				'type': 'submit',
-				'value': '   确定    '
-			}
-		})
-
-		// ============ 执行操作 ============
-		var modal = this
-		var vault = modal.app.vault
-		var fileManager = modal.app.fileManager
-
-		form.onsubmit = async function(){
-			var file = vault.getAbstractFileByPath(modal.PagePath)
-			var MOCPagePath = `${file.parent.parent.path}/${file.parent.parent.name}.md`
-			var MOCpage = await new MOCPage(modal.plugin, MOCPagePath).update()
-			// 检查有无重名项目
-			if (modal.plugin.checkNameFormat(newItemName.value)) {
-				var okToGo = true
-				for (var child of MOCpage.ItemPages) {
-					if (child.baseName == newItemName.value) {
-						okToGo = false
-						new Notice(`当前MOC中已存在该名称项目，请重新输入`)
-					}
-				}
-				if (okToGo) {
-					await fileManager.renameFile(file, `${file.parent.path}/${newItemName.value}.md`)
-					new Notice(`已重命名项目: ${file.parent.name}`)
-					modal.close()
-				}
 			}
 		}
 	}
